@@ -17,6 +17,8 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
+find_package(rclcpp_action REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
 
 # 퍼징 관련 sanitizer 플래그
 set(FUZZ_SAN_COMPILE_FLAGS
@@ -36,6 +38,8 @@ macro(build_fuzzer target_name source_file)
     rclcpp
     std_msgs
     std_srvs
+    rclcpp_action
+    rclcpp_lifecycle
   )
   if(USE_LIBFUZZER)
     target_compile_options(${target_name} PRIVATE ${FUZZ_SAN_COMPILE_FLAGS})
@@ -49,6 +53,11 @@ build_fuzzer(fuzz_create_publisher     fuzz_create_publisher.cpp)
 build_fuzzer(fuzz_create_subscription  fuzz_create_subscription.cpp)
 build_fuzzer(fuzz_declare_parameter    fuzz_declare_parameter.cpp)
 build_fuzzer(fuzz_create_client        fuzz_create_client.cpp)
+build_fuzzer(fuzz_set_parameter        fuzz_set_parameter.cpp)
+build_fuzzer(fuzz_create_timer         fuzz_create_timer.cpp)
+build_fuzzer(fuzz_action_client        fuzz_action_client.cpp)
+build_fuzzer(fuzz_action_server        fuzz_action_server.cpp)
+build_fuzzer(fuzz_node_lifecycle       fuzz_node_lifecycle.cpp)
 build_fuzzer(fuzz_create_service       fuzz_create_service.cpp)
 
 ament_package()
