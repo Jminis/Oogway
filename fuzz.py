@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 IMAGE_NAME = "ros2_libfuzzer"
-TIMEOUT_SEC = 2 * 60 * 60  # 2시간 = 7200초
+TIMEOUT_SEC = 2 * 60 * 60  # 2시간
 
 WORKDIR = Path(__file__).resolve().parent
 SRC_DIR = WORKDIR / "src" / "ros2_fuzz" / "src"
@@ -16,6 +16,7 @@ RESULTS_DIR = WORKDIR / "results"
 LOG_DIR = RESULTS_DIR / "logs"
 CORPUS_BASE = RESULTS_DIR / "corpus"
 CRASH_BASE = RESULTS_DIR / "crashes"
+SAVED_CRASH_LIST = RESULTS_DIR / "saved_crash_list.txt"
 
 def list_fuzzers():
     return sorted([f.stem for f in SRC_DIR.glob("fuzz_*.cpp")])
@@ -24,6 +25,8 @@ def ensure_dirs(target):
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     (CORPUS_BASE / target).mkdir(parents=True, exist_ok=True)
     (CRASH_BASE / target).mkdir(parents=True, exist_ok=True)
+    SAVED_CRASH_LIST.parent.mkdir(parents=True, exist_ok=True)
+    SAVED_CRASH_LIST.touch(exist_ok=True)
 
 def docker_image_exists(name):
     result = subprocess.run(["docker", "images", "-q", name], capture_output=True, text=True)
@@ -32,6 +35,13 @@ def docker_image_exists(name):
 def build_docker_image():
     print(f"[+] Building Docker image '{IMAGE_NAME}'...")
     subprocess.run(["docker", "build", "-t", IMAGE_NAME, "."], check=True)
+
+def load_seen_summaries():
+    return set(line.strip() for line in SAVED_CRASH_LIST.read_text(errors='ignore').splitlines())
+
+def append_summary(summary_line):
+    with open(SAVED_CRASH_LIST, "a") as f:
+        f.write(summary_line + "\n")
 
 def run_fuzzer(target):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -56,9 +66,34 @@ def run_fuzzer(target):
         try:
             process.wait(timeout=TIMEOUT_SEC)
         except subprocess.TimeoutExpired:
-            print(f"[※] Timeout after {TIMEOUT_SEC // 60} minutes. Killing fuzzer.")
+            print(f"[!] Timeout after {TIMEOUT_SEC // 60} minutes. Killing fuzzer.")
             process.kill()
             logfile.write(f"\n[!] Terminated due to timeout ({TIMEOUT_SEC} sec)\n")
+
+    # 분석: log 저장 여부 판단
+    logfile.close()
+    log_text = log_path.read_text(errors='ignore')
+
+    # 1. timeout 로그는 삭제
+    if "Terminated due to timeout" in log_text:
+        print("[-] Timeout-only log. Deleted.")
+        log_path.unlink(missing_ok=True)
+        return
+
+    # 2. 중복 SUMMARY 검사
+    seen = load_seen_summaries()
+    for line in log_text.splitlines():
+        if line.startswith("SUMMARY: "):
+            if line in seen:
+                print("[-] Duplicate crash SUMMARY. Log deleted.")
+                log_path.unlink(missing_ok=True)
+                return
+            else:
+                print("[+] New crash summary. Saving and recording.")
+                append_summary(line)
+                return
+
+    print("[+] No crash. Log saved.")
 
 def main():
     fuzzers = list_fuzzers()
